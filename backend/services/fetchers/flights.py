@@ -629,10 +629,16 @@ def _enrich_with_opensky_and_supplemental(adsb_flights):
         if now - last_opensky_fetch > 300:
             token = opensky_client.get_token()
             if token:
+                # 6 bounding boxes covering global airspace.
+                # Math: 6 regions × 12 calls/hr (5-min throttle) × 24h = 1,728 credits/day.
+                # OpenSky free authenticated tier = 4,000/day; comfortable margin.
                 opensky_regions = [
+                    {"name": "North America", "bbox": {"lamin": 15.0, "lomin": -170.0, "lamax": 75.0, "lomax": -50.0}},
+                    {"name": "Europe", "bbox": {"lamin": 35.0, "lomin": -15.0, "lamax": 75.0, "lomax": 60.0}},
                     {"name": "Africa", "bbox": {"lamin": -35.0, "lomin": -20.0, "lamax": 38.0, "lomax": 55.0}},
                     {"name": "Asia", "bbox": {"lamin": 0.0, "lomin": 30.0, "lamax": 75.0, "lomax": 150.0}},
-                    {"name": "South America", "bbox": {"lamin": -60.0, "lomin": -95.0, "lamax": 15.0, "lomax": -30.0}}
+                    {"name": "South America", "bbox": {"lamin": -60.0, "lomin": -95.0, "lamax": 15.0, "lomax": -30.0}},
+                    {"name": "Oceania", "bbox": {"lamin": -50.0, "lomin": 110.0, "lamax": 0.0, "lomax": 180.0}},
                 ]
 
                 new_opensky_flights = []
@@ -701,21 +707,29 @@ def fetch_flights():
     """Two-phase flight fetching:
     Phase 1 (fast): Fetch adsb.lol → classify → publish immediately (~3-5s)
     Phase 2 (background): Merge OpenSky + supplemental → re-publish (~15-30s)
+
+    Phase 2 runs UNCONDITIONALLY (even when Phase 1 returns 0). On
+    cloud-blocked deployments (e.g. Railway egress hitting adsb.lol's
+    HTTP 451), Phase 1 returns nothing and OpenSky becomes the de-facto
+    primary source via the OAuth2 authenticated tier (4,000 req/day).
     """
     try:
-        # Phase 1: adsb.lol — fast, parallel, publish immediately
+        # Phase 1: adsb.lol — fast, parallel, publish immediately if available
         adsb_flights = _fetch_adsb_lol_regions()
         if adsb_flights:
             logger.info(f"adsb.lol: {len(adsb_flights)} aircraft — publishing immediately")
             _classify_and_publish(adsb_flights)
-
-            # Phase 2: kick off slow enrichment in background
-            threading.Thread(
-                target=_enrich_with_opensky_and_supplemental,
-                args=(adsb_flights,),
-                daemon=True,
-            ).start()
         else:
-            logger.warning("adsb.lol returned 0 aircraft")
+            logger.warning("adsb.lol returned 0 aircraft — OpenSky enrichment becomes primary source")
+
+        # Phase 2: ALWAYS kick off OpenSky + supplemental enrichment, even if
+        # Phase 1 was empty. This is the cloud-deployment fallback path —
+        # OpenSky's authenticated tier covers global coverage when adsb.lol
+        # is unreachable from the egress IP.
+        threading.Thread(
+            target=_enrich_with_opensky_and_supplemental,
+            args=(adsb_flights or [],),
+            daemon=True,
+        ).start()
     except Exception as e:
         logger.error(f"Error fetching flights: {e}")
