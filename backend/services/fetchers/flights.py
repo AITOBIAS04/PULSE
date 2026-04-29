@@ -39,18 +39,26 @@ class OpenSkyClient:
             "client_id": self.client_id,
             "client_secret": self.client_secret
         }
-        try:
-            r = requests.post(url, data=data, timeout=10)
-            if r.status_code == 200:
-                res = r.json()
-                self.token = res.get("access_token")
-                self.expires_at = time.time() + res.get("expires_in", 1800)
-                logger.info("OpenSky OAuth2 token refreshed.")
-                return self.token
-            else:
-                logger.error(f"OpenSky Auth Failed: {r.status_code} {r.text}")
-        except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError) as e:
-            logger.error(f"OpenSky Auth Exception: {e}")
+        # Two attempts with generous timeout — cloud egress (Railway, Fly.io,
+        # etc.) sees occasional 10-30s latency to auth.opensky-network.org
+        # that residential connections don't. Once the token is obtained, it's
+        # cached for ~30 min so this code path only runs occasionally.
+        for attempt in (1, 2):
+            try:
+                r = requests.post(url, data=data, timeout=30)
+                if r.status_code == 200:
+                    res = r.json()
+                    self.token = res.get("access_token")
+                    self.expires_at = time.time() + res.get("expires_in", 1800)
+                    logger.info(f"OpenSky OAuth2 token refreshed (attempt {attempt}).")
+                    return self.token
+                else:
+                    logger.error(f"OpenSky Auth Failed (attempt {attempt}): {r.status_code} {r.text}")
+                    return None  # auth failure (4xx/5xx body) → don't retry, creds may be wrong
+            except (requests.RequestException, ConnectionError, TimeoutError, ValueError, KeyError) as e:
+                logger.warning(f"OpenSky Auth Exception (attempt {attempt}): {e}")
+                if attempt == 2:
+                    logger.error(f"OpenSky Auth giving up after 2 attempts: {e}")
         return None
 
 opensky_client = OpenSkyClient(
