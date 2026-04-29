@@ -598,7 +598,10 @@ def _fetch_adsb_lol_regions():
     ]
 
     def _fetch_region(r):
-        url = f"https://api.adsb.lol/v2/lat/{r['lat']}/lon/{r['lon']}/dist/{r['dist']}"
+        # airplanes.live: drop-in replacement for api.adsb.lol/v2/lat — same
+        # ADS-B feeder network, identical JSON schema, but does NOT IP-block
+        # cloud egress (Railway, Fly.io, etc.) the way adsb.lol does (HTTP 451).
+        url = f"https://api.airplanes.live/v2/lat/{r['lat']}/lon/{r['lon']}/dist/{r['dist']}"
         try:
             res = fetch_with_curl(url, timeout=10)
             if res.status_code == 200:
@@ -725,10 +728,10 @@ def fetch_flights():
         # Phase 1: adsb.lol — fast, parallel, publish immediately if available
         adsb_flights = _fetch_adsb_lol_regions()
         if adsb_flights:
-            logger.info(f"adsb.lol: {len(adsb_flights)} aircraft — publishing immediately")
+            logger.info(f"airplanes.live: {len(adsb_flights)} aircraft — publishing immediately")
             _classify_and_publish(adsb_flights)
         else:
-            logger.warning("adsb.lol returned 0 aircraft — OpenSky enrichment becomes primary source")
+            logger.warning("airplanes.live returned 0 aircraft — OpenSky enrichment becomes primary source")
 
         # Phase 2: ALWAYS kick off OpenSky + supplemental enrichment, even if
         # Phase 1 was empty. This is the cloud-deployment fallback path —

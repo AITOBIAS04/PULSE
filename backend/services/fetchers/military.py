@@ -77,7 +77,9 @@ def fetch_military_flights():
     military_flights = []
     detected_uavs = []
     try:
-        url = "https://api.adsb.lol/v2/mil"
+        # airplanes.live: drop-in replacement for api.adsb.lol/v2/mil — same
+        # ADS-B feeder network, identical JSON schema, doesn't IP-block clouds.
+        url = "https://api.airplanes.live/v2/mil"
         response = fetch_with_curl(url, timeout=10)
         if response.status_code == 200:
             ac = response.json().get('ac', [])
