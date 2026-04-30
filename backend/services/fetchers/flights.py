@@ -598,10 +598,13 @@ def _fetch_adsb_lol_regions():
     ]
 
     def _fetch_region(r):
-        # airplanes.live: drop-in replacement for api.adsb.lol/v2/lat — same
-        # ADS-B feeder network, identical JSON schema, but does NOT IP-block
-        # cloud egress (Railway, Fly.io, etc.) the way adsb.lol does (HTTP 451).
-        url = f"https://api.airplanes.live/v2/lat/{r['lat']}/lon/{r['lon']}/dist/{r['dist']}"
+        # airplanes.live: same ADS-B feeder network as adsb.lol, identical
+        # JSON shape, doesn't IP-block cloud egress. NOTE: path syntax
+        # differs from adsb.lol — airplanes.live uses /v2/point/{lat}/{lon}/{dist}
+        # whereas adsb.lol uses /v2/lat/{lat}/lon/{lon}/dist/{dist}.
+        # Verified empirically: /v2/point returns 1,000+ aircraft per call;
+        # /v2/lat/lon/dist on airplanes.live returns malformed JSON.
+        url = f"https://api.airplanes.live/v2/point/{r['lat']}/{r['lon']}/{r['dist']}"
         try:
             res = fetch_with_curl(url, timeout=10)
             if res.status_code == 200:
